@@ -10,9 +10,7 @@
         }
     ],
     "require": {
-        "php": "~7.0",
-        "freyo/laravel-queue-cmq": "dev-master",
-        "vladimir-yuldashev/laravel-queue-rabbitmq": "v11.1.x"
+        "php": "~7.0"
     },
     "require-dev": {
         "phpunit/phpunit": "^7.5"

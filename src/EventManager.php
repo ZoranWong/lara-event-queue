@@ -3,34 +3,36 @@
 
 namespace ZoranWong\LaraEventQueue;
 
-
-use Illuminate\Foundation\Application;
-use Illuminate\Support\Facades\Event;
+use Exception;
 use Illuminate\Support\Str;
 
 class EventManager
 {
     protected $events = [];
 
-    /**@var Application $app */
-    protected $app = null;
-
     protected $transactionId = null;
 
     protected $transaction = false;
-
+    /**@var QueueEvent[] $eventList*/
     protected $eventList = [];
 
     protected $transactionState = TransactionState::NOTHING;
 
-    public function getEvent(string $name)
+    protected static $instance = null;
+
+    /**@var EventJob $job */
+    private $job = null;
+
+    public static function getInstance(): EventManager
     {
-        foreach ($this->events as $event) {
-            if ((new \ReflectionClass($event))->getConstant('EVENT_NAME') === $name) {
-                return $event;
-            }
+        if (!self::$instance) {
+            self::$instance = new EventManager();
         }
-        return null;
+        return self::$instance;
+    }
+
+    protected function __construct()
+    {
     }
 
     public function startTransaction()
@@ -41,32 +43,55 @@ class EventManager
         $this->transactionState = TransactionState::WAIT_COMMIT;
     }
 
-    public function dispatch(QueueEvent $event)
+    /**
+     *
+     * @param string $eventName
+     * @param array $payload
+     * @throws Exception
+     */
+    public function dispatch(string $eventName, array $payload)
     {
+        $event = new QueueEvent($payload, $eventName);
         if ($this->transaction) {
             $event->setTransactionId($this->transactionId)->setTransactionState($this->transactionState);
             if (!in_array($event, $this->eventList))
                 $this->eventList[] = $event;
         } else {
-            dispatch(new EventJob($event->getEventName(), $event->getPayload()));
+            $this->job = new EventJob($event);
+            try {
+                dispatch($this->job);
+                $this->job->ack();
+            } catch (Exception $exception) {
+                $this->job->nack();
+                throw $exception;
+            }
         }
     }
 
-    public function listener(string $event, $listener)
-    {
-        if (class_exists($event) && !in_array($event, $this->events)) {
-            $this->events[] = $event;
-        }
-        Event::listen($event, $listener);
-    }
-
+    /**
+     * @throws
+     * */
     public function commitTransaction()
     {
         //
+        $this->job = new EventJob(...$this->eventList);
+        try {
+            dispatch($this->job);
+            $this->job->ack();
+            foreach ($this->eventList as $event) {
+                $event->setTransactionState(TransactionState::COMMIT);
+            }
+        } catch (Exception $exception) {
+            throw $exception;
+        }
     }
 
     public function rollbackTransaction()
     {
         // 删除回滚
+        $this->job->nack();
+        foreach ($this->eventList as $event) {
+            $event->setTransactionState(TransactionState::ROLLBACK);
+        }
     }
 }

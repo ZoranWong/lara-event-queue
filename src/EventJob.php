@@ -3,43 +3,63 @@
 
 namespace ZoranWong\LaraEventQueue;
 
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Queue\InteractsWithQueue;
+use Illuminate\Queue\SerializesModels;
 
-use Illuminate\Support\Facades\Event;
-use VladimirYuldashev\LaravelQueueRabbitMQ\Queue\Jobs\RabbitMQJob as BaseJob;
-
-class EventJob extends BaseJob
+class EventJob implements ShouldQueue
 {
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, JobAckTrait;
 
-    protected $eventName = null;
-    protected $eventPayload = null;
+    protected $events = [];
 
-    protected $queue = '';
+    public $tries = 5;
 
-    protected $connection = '';
-
-    public function __construct(string $eventName, array $eventPayload)
+    /**
+     *
+     * @param QueueEvent $event
+     * @param array $others
+     */
+    public function __construct(QueueEvent $event, ...$others)
     {
-        $this->eventName = $eventName;
-        $this->eventPayload = $eventPayload;
-        $this->queue = config('lara_event_queue.queue');
+        $this->queue = $event->getEventQueue();
         $this->connection = config('lara_event_queue.connection');
+        $this->events[$event->getEventId()] = new QueueJobEvent($event->getPayload(), $event->getEventName(), $event->getTransactionId(), $event->getTransactionState());
+        if (count($others) > 0) {
+            foreach ($others as $otherEvent) {
+                /**@var QueueEvent $otherEvent */
+                $this->events[$otherEvent->getEventId()] = new QueueJobEvent($otherEvent->getPayload(), $otherEvent->getEventName(), $otherEvent->getTransactionId(), $otherEvent->getTransactionState());
+            }
+        }
     }
 
+    /**
+     * @throws
+     * */
     public function handle()
     {
-        $data = $this->eventPayload;
-        if($data['transaction_state'] === ''){
-
-        }
-        /**@var EventManager $eventManager */
-        $eventManager = app('queue.event.manager');
-        $eventClass = $eventManager->getEvent($this->eventName);
-        if ($eventClass) {
-            /**@var QueueEvent $event */
-            $event = new $eventClass($this->eventPayload);
-            event($event);
-        } else {
-            event($this->eventName, $this->eventPayload);
+        foreach ($this->events as $k => $event) {
+            try {
+                $event->setJob($this);
+                event($event);
+                $event->setTransactionState(TransactionState::COMMIT);
+                $this->ack();
+                unset($this->events[$k]);
+            } catch (\Exception $exception) {
+                $event->setJob(null);
+                $event->setTransactionState(TransactionState::ROLLBACK);
+                if ($this->attempts() < $this->tries) {
+                    if ($event->getFailToTail())
+                        $this->release(1);
+                    else
+                        $this->nack();
+                } else {
+                    $this->job->fail($exception);
+                }
+                throw $exception;
+            }
         }
     }
 }
