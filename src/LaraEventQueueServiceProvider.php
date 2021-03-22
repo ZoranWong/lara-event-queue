@@ -3,8 +3,10 @@
 
 namespace ZoranWong\LaraEventQueue;
 
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Queue\QueueManager;
 use Illuminate\Queue\QueueServiceProvider;
+use Illuminate\Queue\Worker;
 use ZoranWong\LaraEventQueue\Connectors\ReliableRedisConnector;
 
 class LaraEventQueueServiceProvider extends QueueServiceProvider
@@ -40,6 +42,27 @@ class LaraEventQueueServiceProvider extends QueueServiceProvider
     {
         $manager->addConnector('reliable-redis', function () {
             return new ReliableRedisConnector($this->app['redis']);
+        });
+    }
+
+    /**
+     * Register the queue worker.
+     *
+     * @return void
+     */
+    protected function registerWorker()
+    {
+        $this->app->singleton('queue.worker', function ($app) {
+            $isDownForMaintenance = function () {
+                return $this->app->isDownForMaintenance();
+            };
+
+            return new EventQueueWorker(
+                $app['queue'],
+                $app['events'],
+                $app[ExceptionHandler::class],
+                $isDownForMaintenance
+            );
         });
     }
 }

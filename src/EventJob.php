@@ -8,8 +8,11 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Log;
+use ZoranWong\LaraEventQueue\Jobs\OrderJobInterface;
+use ZoranWong\LaraEventQueue\Jobs\ReliableJobInterface;
 
-class EventJob implements ShouldQueue
+class EventJob implements ShouldQueue, ReliableJobInterface
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels, JobAckTrait;
 
@@ -44,6 +47,8 @@ class EventJob implements ShouldQueue
             try {
                 $event->setJob($this);
                 event($event);
+                if($event->getPayload()['index'] %2 === 0)
+                    Log::info('----------- event job ------', $event->getPayload());
                 $event->setTransactionState(TransactionState::COMMIT);
                 $this->ack();
                 unset($this->events[$k]);
@@ -61,5 +66,27 @@ class EventJob implements ShouldQueue
                 throw $exception;
             }
         }
+    }
+
+    public function getUUId(): string
+    {
+        // TODO: Implement getUUId() method.
+        return $this->job->uuid();
+    }
+
+    public function lock(): bool
+    {
+        // TODO: Implement lock() method.
+    }
+
+    public function unlock()
+    {
+        // TODO: Implement unlock() method.
+    }
+
+    public function canRun(): bool
+    {
+        // TODO: Implement canRun() method.
+        return true;
     }
 }

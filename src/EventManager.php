@@ -13,7 +13,7 @@ class EventManager
     protected $transactionId = null;
 
     protected $transaction = false;
-    /**@var QueueEvent[] $eventList*/
+    /**@var QueueEvent[] $eventList */
     protected $eventList = [];
 
     protected $transactionState = TransactionState::NOTHING;
@@ -49,7 +49,7 @@ class EventManager
      * @param array $payload
      * @throws Exception
      */
-    public function dispatch(string $eventName, array $payload)
+    public function dispatch(string $eventName, array $payload, bool $inOrder = false)
     {
         $event = new QueueEvent($payload, $eventName);
         if ($this->transaction) {
@@ -57,7 +57,7 @@ class EventManager
             if (!in_array($event, $this->eventList))
                 $this->eventList[] = $event;
         } else {
-            $this->job = new EventJob($event);
+            $this->job = $inOrder ? new InOrderEventJob($event) : new EventJob($event);
             try {
                 dispatch($this->job);
                 $this->job->ack();

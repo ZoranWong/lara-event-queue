@@ -38,7 +38,6 @@ abstract class EventQueueListenerCommand extends Command
         $disk = app('filesystem')->disk('logs');
         if (!$disk->exists($this->logPath))
             $disk->makeDirectory($this->logPath);
-
     }
 
     public function handle()
@@ -52,7 +51,7 @@ abstract class EventQueueListenerCommand extends Command
             $worker->name = $this->signature;
             $worker->onWorkerStart = function () use ($queue, $worker) {
                 $this->input = $this->parentInput;
-                $this->output = new StreamOutput(fopen(app()->storagePath(). '/logs'. $this->logPath . $queue . '-' . $worker->id . '.log', 'w'));
+                $this->output = new StreamOutput(fopen(app()->storagePath(). '/logs'. $this->logPath . $queue .'-'.now()->format('Y-m-d'). '-' . $worker->id . '.log', 'w'));
                 $this->call('queue:work', [
                     'connection' => config('lara_event_queue.connection'),
                     '--queue' => $queue
